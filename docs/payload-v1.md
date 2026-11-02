@@ -30,16 +30,25 @@ A later payload for the same date replaces an undelivered one, so receivers shou
   "summary": { "steps": 8821, "resting_hr": 58, "sleep_min": 412, "stand_hours": 8, "...": "..." },
   "detail": {
     "stood_hours": ["09", "11"], "idle_hours": ["10"],
-    "workouts": [{ "type": "walking", "start": "14:53", "end": "16:02", "min": 69, "kcal": 375, "avg_hr": 138 }],
+    "workouts": [{ "type": "walking", "start": "14:53", "end": "16:02", "min": 69, "kcal": 375, "avg_hr": 138,
+                   "km": 6.02, "source": "Apple Watch", "bundle": "com.apple.health.XXXX" }],
     "sleep_stages": [{ "stage": "core", "start": "ISO-8601", "end": "ISO-8601" }]
   },
-  "samples": { "heart_rate": [{ "t": "ISO-8601", "bpm": 72 }] },
+  "samples": {
+    "heart_rate": [{ "t": "ISO-8601", "bpm": 72 }],
+    "steps": [{ "start": "ISO-8601", "end": "ISO-8601", "count": 512, "source": "KS Fit", "bundle": "com.kingsmith.xxx", "device": "other" }],
+    "distance": [{ "start": "ISO-8601", "end": "ISO-8601", "km": 0.412, "source": "Apple Watch", "bundle": "com.apple.health.XXXX", "device": "watch" }]
+  },
+  "trigger": { "kind": "wake", "wake_id": "abc123" },
   "location": { "lat": 22.957, "lon": 113.356, "accuracy_m": 65, "fix_time": "ISO-8601", "source": "update" }
 }
 ```
 
 - Keys are omitted when there is no data or the group is switched off; absent ≠ 0.
-- `samples` only with Include Raw Heart Rate Samples (附带原始心率样本); `location` only with Location Sync (位置同步) on (3 decimals ≈ 100 m, latest fix only).
+- `samples` only with Include Raw Samples (附带原始样本): `heart_rate` with the heart group, `steps` / `distance` with the steps group. Step and distance samples come from every source, not de-duplicated: `source` is the app's display name, `bundle` its bundle id (`com.apple.*` = Apple), `device` is `watch`, `phone` or `other` (third-party app or accessory). `summary.steps` / `distance_km` stay Apple Health's merged totals (its source priority); de-duplicate from `samples` if you want your own rule (e.g. treadmill app > Watch > iPhone).
+- `detail.workouts[].source` / `bundle` name the app that saved the workout (added in 1.1); `workout_*` totals count all sources.
+- `trigger` only on an on-demand refresh (按需刷新, added in 1.1): your server POSTed the relay's wake URL, optionally with `{"wake_id": "..."}`, and this payload is the answer. Match `trigger.wake_id` to know the refresh arrived. Yesterday may be sent in the same run with the same `trigger`. Best effort: iOS may delay or drop silent pushes (low power, app force-quit, throttling), so time out after ~60 s. If the push arrives while Health data is locked (phone locked for a while), the app answers on the next run that can read it (usually the next unlock), still with that `wake_id` (`trigger.deferred: true`) — late, not lost.
+- `location` only with Location Sync (位置同步) on (3 decimals ≈ 100 m, latest fix only).
 - A connection test sends `{"schema":"health-export/v1","test":true,...}`; reply 2xx and store nothing.
 
 ### summary keys
