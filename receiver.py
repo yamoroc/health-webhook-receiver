@@ -91,16 +91,19 @@ class Handler(BaseHTTPRequestHandler):
             duplicate = bool(key) and key in seen
             if not duplicate:
                 # Each request is the full current state of that day: overwrite.
-                tmp = os.path.join(DATA_DIR, f".{date}.json.tmp")
+                # Apple Watch payloads ("origin": "watch") hold only the watch's data,
+                # so they go to their own file instead of replacing the iPhone's.
+                name = f"{date}.watch.json" if body.get("origin") == "watch" else f"{date}.json"
+                tmp = os.path.join(DATA_DIR, f".{name}.tmp")
                 with open(tmp, "w", encoding="utf-8") as f:
                     json.dump(body, f, ensure_ascii=False, indent=2)
-                os.replace(tmp, os.path.join(DATA_DIR, f"{date}.json"))
+                os.replace(tmp, os.path.join(DATA_DIR, name))
                 if key:
                     seen.add(key)
             with open(LOG, "a", encoding="utf-8") as f:
                 f.write(json.dumps({
                     "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                    "date": date, "key": key, "duplicate": duplicate,
+                    "date": date, "origin": body.get("origin", "phone"), "key": key, "duplicate": duplicate,
                     "summary_keys": len(body.get("summary") or {}),
                     "has_location": "location" in body, "has_samples": "samples" in body,
                 }) + "\n")

@@ -1,6 +1,6 @@
 # health-webhook-receiver
 
-A tiny, dependency-free receiver for **Health Data Webhook Sync** (iOS). The app POSTs one `health-export/v1` JSON document per day to your HTTPS URL. This server checks the Bearer token, writes the latest version of each day to `data/<date>.json`, and logs every delivery to `data/deliveries.jsonl`.
+A tiny, dependency-free receiver for **Health Data Webhook Sync** (iOS). The app POSTs one `health-export/v1` JSON document per day to your HTTPS URL. This server checks the Bearer token, writes the latest version of each day to `data/<date>.json` (Apple Watch payloads, `"origin": "watch"`, to `data/<date>.watch.json`), and logs every delivery to `data/deliveries.jsonl`.
 
 It is one Python file (standard library only, Python 3.9+). Use it as is, or read it as a reference for the contract and plug the same logic into your own stack (n8n, Home Assistant, a database, …).
 
