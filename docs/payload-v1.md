@@ -49,6 +49,7 @@ A later payload for the same date replaces an undelivered one, so receivers shou
 - `detail.workouts[].source` / `bundle` name the app that saved the workout (added in 1.1); `workout_*` totals count all sources.
 - `trigger` only on an on-demand refresh (按需刷新, added in 1.1): your server POSTed the relay's wake URL, optionally with `{"wake_id": "..."}`, and this payload is the answer. Match `trigger.wake_id` to know the refresh arrived. Yesterday may be sent in the same run with the same `trigger`. Best effort: iOS may delay or drop silent pushes (low power, app force-quit, throttling), so time out after ~60 s. If the push arrives while Health data is locked (phone locked for a while), the app answers on the next run that can read it (usually the next unlock), still with that `wake_id` (`trigger.deferred: true`) — late, not lost.
 - `origin: "watch"` (planned for 1.2, opt-in under Settings → Upload from Apple Watch): the payload was sent by the Apple Watch app, which can read the watch's Health data while the iPhone is locked. It holds only what the watch has — no iPhone-only sources (treadmill apps, phone-only steps), no `location` — so **merge it into the day, don't overwrite**: take the larger day counters (`steps`, `active_kcal`, …), the smaller `hr_min`, the union of `samples` / workouts / stood hours, and the newer point readings. A watch run may answer a refresh too (same `trigger.wake_id`). Absent `origin` = the iPhone.
+- `metrics`, `latest`, `catalog` only with the More Health Data group (更多健康数据, added in 1.2, iPhone only — watch payloads never carry them, so keep the phone's when merging). See below.
 - `location` only with Location Sync (位置同步) on (3 decimals ≈ 100 m, latest fix only).
 - A connection test sends `{"schema":"health-export/v1","test":true,...}`; reply 2xx and store nothing.
 
@@ -74,5 +75,33 @@ A later payload for the same date replaces an undelivered one, so receivers shou
 | `stand_hours`, `stand_goal_hours`, `stand_min` | h, h, min | activity | |
 | `workout_count`, `workout_min`, `workout_kcal` | –, min, kcal | workouts | |
 | `daylight_min` | min | daylight | |
+
+### More Health Data (1.2)
+
+Every other HealthKit type the user has (weight, resting energy, mobility, noise, nutrition, symptoms, ECG …). Sparse: a type appears only on days it has samples.
+
+```json
+"metrics": {
+  "basal_kcal":       { "unit": "kcal", "n": 288, "sum": 1702.4 },
+  "walking_speed":    { "unit": "m/s", "n": 12, "avg": 1.31, "min": 1.12, "max": 1.52, "last": 1.4, "last_at": "ISO-8601" },
+  "high_heart_rate_event": { "n": 1, "times": ["ISO-8601"], "values": { "0": 1 } },
+  "mindful_session":  { "n": 2, "times": ["ISO-8601", "ISO-8601"], "values": { "0": 2 }, "minutes": 12 },
+  "ecg":              { "n": 1, "times": ["ISO-8601"], "classification": ["sinus_rhythm"], "avg_hr": 68 }
+},
+"latest": {
+  "body_mass": { "value": 74.1, "unit": "kg", "at": "ISO-8601", "source": "Health" }
+},
+"catalog": {
+  "body_mass":    { "first": "2016-06-13", "last": "2026-11-10" },
+  "dietary_kcal": { "first": "2020-02-14", "last": "2020-07-10" }
+}
+```
+
+- **Quantity types** — cumulative (energy, distances, nutrition …): `sum` (HealthKit de-duplicated across sources) and `n` samples; discrete (body measurements, speeds, dB …): `avg` / `min` / `max` over all samples of the day, `last` + `last_at`. Units are fixed per key (`unit`); percentages are 0–100.
+- **Category types** (events, symptoms, cycle tracking): `n`, start `times` (first 50), `values` = count per HealthKit raw value (severity, flow level …), `minutes` = summed duration when samples have one.
+- **Others**: `ecg` (`classification`, `avg_hr`), `state_of_mind` (`valence_avg`, −1…1), `gad7` / `phq9` (`last_score`), `audiogram`, `heartbeat_series`, `workout_route` (count and times only; the series data itself is not sent).
+- **`latest`**: newest sample ever (up to the end of `date`) of slow-changing measurements — `body_mass`, `height`, `body_mass_index`, `body_fat_pct`, `lean_body_mass`, `waist_circumference`, `walking_steadiness_pct`, `cycling_ftp`, `bp_systolic`, `bp_diastolic`, `vo2max`. Use it when the day itself has no reading.
+- **`catalog`**: every type with any data, first/last sample date. Recomputed at most once a day (cached copy otherwise), so a type that stopped being recorded years ago is visible here without appearing in `metrics`.
+- Keys and the full list live in `HealthSync/HealthMetrics.swift`; new keys may be added within v1.
 
 Breaking changes get a new `schema` value; new optional keys may be added within v1.
