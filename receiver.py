@@ -30,28 +30,7 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 LOG = os.path.join(DATA_DIR, "deliveries.jsonl")
-LAST_PHONE = os.path.join(DATA_DIR, "last-phone.json")
 lock = threading.Lock()
-
-
-def parse_time(s):
-    try:
-        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def load_last_phone():
-    try:
-        with open(LAST_PHONE, encoding="utf-8") as f:
-            return json.load(f).get("generated_at")
-    except (OSError, ValueError):
-        return None
-
-
-# Newest generated_at of an iPhone payload, returned as `last_phone_at` (see docs/payload-v1.md, Response):
-# the Apple Watch app slows its scheduled uploads while the iPhone is uploading.
-last_phone_at = load_last_phone()
 
 
 def load_seen():
@@ -88,7 +67,6 @@ class Handler(BaseHTTPRequestHandler):
         self.reply(404, {"error": "not found"})
 
     def do_POST(self):
-        global last_phone_at
         if self.path.split("?")[0] != PATH:
             return self.reply(404, {"error": "not found"})
         if TOKEN and not hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {TOKEN}"):
@@ -122,13 +100,6 @@ class Handler(BaseHTTPRequestHandler):
                 os.replace(tmp, os.path.join(DATA_DIR, name))
                 if key:
                     seen.add(key)
-                gen = body.get("generated_at")
-                t = parse_time(gen) if body.get("origin") != "watch" and gen else None
-                prev = parse_time(last_phone_at) if last_phone_at else None
-                if t and t.tzinfo and (prev is None or not prev.tzinfo or t > prev):
-                    last_phone_at = gen
-                    with open(LAST_PHONE, "w", encoding="utf-8") as f:
-                        json.dump({"generated_at": gen}, f)
             with open(LOG, "a", encoding="utf-8") as f:
                 f.write(json.dumps({
                     "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -136,10 +107,7 @@ class Handler(BaseHTTPRequestHandler):
                     "summary_keys": len(body.get("summary") or {}),
                     "has_location": "location" in body, "has_samples": "samples" in body,
                 }) + "\n")
-        reply = {"status": "ok", "duplicate": duplicate}
-        if last_phone_at:
-            reply["last_phone_at"] = last_phone_at
-        self.reply(200, reply)
+        self.reply(200, {"status": "ok", "duplicate": duplicate})
 
     def log_message(self, fmt, *args):
         sys.stderr.write("%s %s\n" % (self.log_date_time_string(), fmt % args))
