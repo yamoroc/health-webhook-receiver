@@ -76,6 +76,7 @@ Request: `POST`, `Content-Type: application/json`, `Authorization: Bearer <token
 - **Overwrite per date.** The app sends the same day again as more data arrives (and on backfill). Each request is the full current state of that day, so keep the newest one.
 - **Any 2xx means delivered.** Anything else is retried with backoff (1, 2, 4 … minutes, up to 6 h). 4xx other than 408/429 waits 6 h, so fix auth or the URL and the app will catch up.
 - **Test requests** (`"test": true`) must get a 2xx and should store nothing.
+- **Lock receipts** (`"receipt": {"status": "locked", "wake_id": …}`, no `date`, app 1.2) say an on-demand refresh reached a locked device; the data follows after the next unlock. This server logs them to `deliveries.jsonl` and stores nothing.
 - Fields only present when their group is switched on in the app; missing means "no data or not shared", not zero.
 - Idempotency-Key repeats mean a retry of a body you already have; answering 2xx again is correct.
 

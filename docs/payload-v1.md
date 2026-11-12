@@ -47,11 +47,12 @@ A later payload for the same date replaces an undelivered one, so receivers shou
 - Keys are omitted when there is no data or the group is switched off; absent ≠ 0.
 - `samples` only with Include Raw Samples (附带原始样本): `heart_rate` with the heart group, `steps` / `distance` with the steps group. Step and distance samples come from every source, not de-duplicated: `source` is the app's display name, `bundle` its bundle id (`com.apple.*` = Apple), `device` is `watch` or `phone` for Apple's own sensors, `other` for anything written by a third-party app (treadmill, scale, …). `summary.steps` / `distance_km` stay Apple Health's merged totals (its source priority); de-duplicate from `samples` if you want your own rule (e.g. treadmill app > Watch > iPhone).
 - `detail.workouts[].source` / `bundle` name the app that saved the workout (added in 1.1); `workout_*` totals count all sources.
-- `trigger` only on an on-demand refresh (按需刷新, added in 1.1): your server POSTed the relay's wake URL, optionally with `{"wake_id": "..."}`, and this payload is the answer. Match `trigger.wake_id` to know the refresh arrived. Yesterday may be sent in the same run with the same `trigger`. Best effort: iOS may delay or drop silent pushes (low power, app force-quit, throttling), so time out after ~60 s. If the push arrives while Health data is locked (phone locked for a while), the app answers on the next run that can read it (usually the next unlock), still with that `wake_id` (`trigger.deferred: true`) — late, not lost.
+- `trigger` only on an on-demand refresh (按需刷新, added in 1.1): your server POSTed the relay's wake URL, optionally with `{"wake_id": "..."}`, and this payload is the answer. Match `trigger.wake_id` to know the refresh arrived. Yesterday may be sent in the same run with the same `trigger`. Best effort: iOS may delay or drop silent pushes (low power, app force-quit, throttling), so time out after ~60 s. If the push arrives while Health data is locked (phone locked for a while), the app answers on the next run that can read it (usually the next unlock), still with that `wake_id` (`trigger.deferred: true`) — late, not lost. Since 1.2 the app also sends a lock receipt right away (see Lock receipt below), so a refresh call can return "locked" in seconds.
 - `origin: "watch"` (planned for 1.2, opt-in under Settings → Upload from Apple Watch): the payload was sent by the Apple Watch app, which can read the watch's Health data while the iPhone is locked. It holds only what the watch has — no iPhone-only sources (treadmill apps, phone-only steps), no `location` — so **merge it into the day, don't overwrite**: take the larger day counters (`steps`, `active_kcal`, …), the smaller `hr_min`, the union of `samples` / workouts / stood hours, and the newer point readings. A watch run may answer a refresh too (same `trigger.wake_id`). Absent `origin` = the iPhone. Scheduled watch uploads run about every 20 min and pause during quiet hours (Settings, default 00:00–07:00; refreshes are still answered).
 - `metrics`, `latest`, `catalog` only with the More Health Data group (更多健康数据, added in 1.2, iPhone only — watch payloads never carry them, so keep the phone's when merging). See below.
 - `location` only with Location Sync (位置同步) on (3 decimals ≈ 100 m, latest fix only).
 - A connection test sends `{"schema":"health-export/v1","test":true,...}`; reply 2xx and store nothing.
+- A body with `receipt` and no `date` is a lock receipt, not a day (see below); reply 2xx and never store it as a day.
 
 ### summary keys
 
@@ -105,5 +106,28 @@ Every other HealthKit type the user has (weight, resting energy, mobility, noise
 - **`latest`**: newest sample ever (up to the end of `date`) of slow-changing measurements — `body_mass`, `height`, `body_mass_index`, `body_fat_pct`, `lean_body_mass`, `waist_circumference`, `walking_steadiness_pct`, `cycling_ftp`, `bp_systolic`, `bp_diastolic`, `vo2max`. Use it when the day itself has no reading.
 - **`catalog`**: every type with any data, first/last sample date. Recomputed at most once a day (cached copy otherwise), so a type that stopped being recorded years ago is visible here without appearing in `metrics`.
 - Keys and the full list live in `HealthSync/HealthMetrics.swift`; new keys may be added within v1.
+
+## Lock receipt
+
+Added in 1.2. When an on-demand wake reaches a device that cannot read Health data (iPhone locked for a while,
+or the watch off the wrist), the app POSTs this once to the same URL, with the same headers except `Idempotency-Key`:
+
+```json
+{
+  "schema": "health-export/v1",
+  "receipt": { "status": "locked", "wake_id": "abc123" },
+  "generated_at": "2026-11-12T10:02:11.402+08:00",
+  "device_id": "UUID, random per install",
+  "app": { "bundle_id": "cn.miaclass.health", "version": "1.2" }
+}
+```
+
+- No `date`, no health data. Reply 2xx; it is never retried or queued (an old "locked" is worthless).
+- `origin: "watch"` when the watch sent it. An iPhone receipt means the phone part of that refresh will not come
+  until the next unlock (then with `trigger.deferred: true`); the watch may still answer within minutes.
+- No receipt and no data within ~60 s usually means the push did not arrive (no network, app force-quit, iOS
+  throttling), not a lock.
+- Receivers that don't use it can simply reply 2xx. One that rejects it (e.g. 400 for a missing `date`) does no
+  harm: the app ignores the reply.
 
 Breaking changes get a new `schema` value; new optional keys may be added within v1.

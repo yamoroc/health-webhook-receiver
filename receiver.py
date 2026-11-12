@@ -82,6 +82,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {"error": "unknown schema"})
         if body.get("test") is True:
             return self.reply(200, {"status": "ok", "test": True})
+        if isinstance(body.get("receipt"), dict):
+            # Lock receipt (app 1.2): a refresh reached a device that can't read Health data right now.
+            # No health data; log it so you can tell "phone locked" from "push never arrived".
+            r = body["receipt"]
+            with lock, open(LOG, "a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "receipt": r.get("status"),
+                    "wake_id": r.get("wake_id"), "origin": body.get("origin", "phone"),
+                }) + "\n")
+            return self.reply(200, {"status": "ok", "receipt": True})
         date = str(body.get("date", ""))
         if not DATE_RE.match(date):
             return self.reply(400, {"error": "bad date"})
